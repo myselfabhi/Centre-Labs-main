@@ -1,0 +1,129 @@
+version: "3.8"
+
+services:
+  database:
+    image: postgres:15-alpine
+    container_name: peptides_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: peptides_db
+      POSTGRES_USER: peptides_user
+      POSTGRES_PASSWORD: peptides_password_2024
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5444:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U peptides_user -d peptides_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    image: harshitdkanodia/peptides_api:latest
+    container_name: peptides_api
+    restart: unless-stopped
+    depends_on:
+      database:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment:
+      # Default environment variables for staging. Change these for production!
+      NODE_ENV: staging
+      DATABASE_URL: postgresql://peptides_user:peptides_password_2024@database:5432/peptides_db
+      JWT_SECRET: your_jwt_secret_key_here_change_in_production
+      STRIPE_SECRET_KEY: your_stripe_secret_key_here
+      STRIPE_WEBHOOK_SECRET: your_stripe_webhook_secret_here
+      EMAIL_HOST: smtp.gmail.com
+      EMAIL_PORT: 587
+      EMAIL_SECURE: false
+      EMAIL_USER: centerresearchweb@gmail.com
+      EMAIL_PASSWORD: jccq ciyh cini mvor
+      EMAIL_FROM: centerresearchweb@gmail.com
+      # Resend API Configuration (for all emails except abandoned carts)
+      RESEND_API_KEY: re_cPqDX5hP_8FwZ7a33XiB81UfiomX1EfWB
+      SHIPPING_MANAGER_EMAIL: shipping@centreresearch.org
+      CORS_ORIGIN: https://peptide.stmin.dev
+      PORT: 3001
+      # Authorize.Net
+      ANET_ENV: production
+      ANET_API_LOGIN_ID: 3R2CfcnM3r
+      ANET_TRANSACTION_KEY: 3h6U2P5G8z3b67Xa
+      ANET_CLIENT_KEY: 896SG59QRkT5F7k6wpVce8VZQV7mDjehWnbnsKsX8k93F6kEyNGMZw8pn64jpJDF
+      # Twilio SMS Configuration (for OTP)
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN}
+      TWILIO_FROM_NUMBER: ${TWILIO_FROM_NUMBER}
+      TWILIO_MESSAGING_SERVICE_SID: ${TWILIO_MESSAGING_SERVICE_SID}
+      # MinIO/S3 Configuration (use environment variables)
+      AWS_REGION: ${AWS_REGION:-ap-south-1}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-YOUR_AWS_ACCESS_KEY_ID}
+      AWS_SECRET_KEY_ID: ${AWS_SECRET_KEY_ID:-YOUR_AWS_SECRET_ACCESS_KEY}
+      S3_BUCKET_NAME: peptide-bucket
+      # AWS_ENDPOINT: http://minio:9000
+      AWS_FORCE_PATH_STYLE: true
+      FRONTEND_URL: https://cr.stmin.dev/
+      SHIPSTATION_BASE_URL: https://api.shipstation.com
+      SHIPSTATION_API_KEY: 9iB3qaIqTux+JhoMhxoW42t1bejUjkXwH2iLXHTvMNk
+      SHIPSTATION_API_SECRET: 9iB3qaIqTux+JhoMhxoW42t1bejUjkXwH2iLXHTvMNk
+      SHIPSTATION_ALLOW_MOCK_FALLBACK: false
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    ports:
+      - "3666:3001"
+
+  frontend:
+    image: harshitdkanodia/peptides_nextjs:latest
+    container_name: peptides_frontend
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      # Default environment variables for staging. Change these for production!
+      NODE_ENV: staging
+      NEXT_PUBLIC_API_URL: https://pepapi.stmin.dev/api
+      SERVER_API_URL: http://api:3001/api
+      # Authorize.Net Frontend Configuration
+      NEXT_PUBLIC_ANET_ENV: production
+      NEXT_PUBLIC_ANET_API_LOGIN_ID: 3R2CfcnM3r
+      NEXT_PUBLIC_ANET_CLIENT_KEY: 896SG59QRkT5F7k6wpVce8VZQV7mDjehWnbnsKsX8k93F6kEyNGMZw8pn64jpJDF
+    ports:
+      - "3667:3000"
+
+  redis:
+    image: redis:7-alpine
+    container_name: peptides_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  minio:
+    image: minio/minio:latest
+    container_name: peptides_minio
+    restart: unless-stopped
+    ports:
+      - "9000:9000" # API port
+      - "9001:9001" # Console port
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+      MINIO_DEFAULT_BUCKETS: peptides-staging
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  minio_data:
+    driver: local

@@ -1,0 +1,126 @@
+version: "3.8"
+
+services:
+  # PostgreSQL Database
+  database:
+    image: postgres:15-alpine
+    container_name: peptides_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: peptides_db
+      POSTGRES_USER: peptides_user
+      POSTGRES_PASSWORD: peptides_password_2024
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - peptides_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U peptides_user -d peptides_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Node.js API Backend
+  api:
+    build:
+      context: ./nodejs-api
+      dockerfile: Dockerfile
+    container_name: peptides_api
+    restart: unless-stopped
+    depends_on:
+      database:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://peptides_user:peptides_password_2024@database:5432/peptides_db
+      JWT_SECRET: your_jwt_secret_key_here_change_in_production
+      STRIPE_SECRET_KEY: your_stripe_secret_key_here
+      STRIPE_WEBHOOK_SECRET: your_stripe_webhook_secret_here
+      EMAIL_HOST: smtp.gmail.com
+      EMAIL_PORT: 587
+      EMAIL_USER: your_email@gmail.com
+      EMAIL_PASSWORD: your_app_password_here
+      SHIPPING_MANAGER_EMAIL: shipping@centreresearch.org
+      CORS_ORIGIN: http://localhost:3000
+      # Authorize.Net
+      ANET_ENV: production
+      ANET_API_LOGIN_ID: 3R2CfcnM3r
+      ANET_TRANSACTION_KEY: 3h6U2P5G8z3b67Xa
+      ANET_CLIENT_KEY: 896SG59QRkT5F7k6wpVce8VZQV7mDjehWnbnsKsX8k93F6kEyNGMZw8pn64jpJDF
+      # Twilio SMS Configuration (for OTP)
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN}
+      TWILIO_FROM_NUMBER: ${TWILIO_FROM_NUMBER}
+      TWILIO_MESSAGING_SERVICE_SID: ${TWILIO_MESSAGING_SERVICE_SID}
+      SHIPSTATION_BASE_URL: https://api.shipstation.com
+      SHIPSTATION_API_KEY: 9iB3qaIqTux+JhoMhxoW42t1bejUjkXwH2iLXHTvMNk
+      SHIPSTATION_API_SECRET: 9iB3qaIqTux+JhoMhxoW42t1bejUjkXwH2iLXHTvMNk
+      SHIPSTATION_ALLOW_MOCK_FALLBACK: false
+    volumes:
+      - ./nodejs-api:/app
+      - /app/node_modules
+    ports:
+      - "3001:3001"
+    networks:
+      - peptides_network
+    command: >
+      sh -c "
+        npm install &&
+        npx prisma generate &&
+        npx prisma migrate deploy &&
+        npm start
+      "
+
+  # Next.js Frontend
+  frontend:
+    build:
+      context: ./nextjs-frontend
+      dockerfile: Dockerfile
+    container_name: peptides_frontend
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_URL: http://localhost:3001
+      NEXT_PUBLIC_ANET_ENV: production
+      NEXT_PUBLIC_ANET_API_LOGIN_ID: 3R2CfcnM3r
+      NEXT_PUBLIC_ANET_CLIENT_KEY: 896SG59QRkT5F7k6wpVce8VZQV7mDjehWnbnsKsX8k93F6kEyNGMZw8pn64jpJDF
+    volumes:
+      - ./nextjs-frontend:/app
+      - /app/node_modules
+      - /app/.next
+    ports:
+      - "3000:3000"
+    networks:
+      - peptides_network
+    command: >
+      sh -c "
+        npm install &&
+        npm run build &&
+        npm start
+      "
+
+  # Redis for Session Management (Optional)
+  redis:
+    image: redis:7-alpine
+    container_name: peptides_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - peptides_network
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  peptides_network:
+    driver: bridge
